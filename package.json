@@ -1,0 +1,13 @@
+{
+  "name": "bot-imobiliario",
+  "version": "1.0.0",
+  "description": "Bot de qualificacao imobiliaria - Z-API + Typebot",
+  "main": "integracao_zapi_typebot.js",
+  "scripts": {
+    "start": "node integracao_zapi_typebot.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  }
+}
