@@ -28,34 +28,55 @@ async function enviarMensagem(telefone, mensagem) {
   }
 }
 
+function extrairTexto(richText) {
+  if (!richText) return '';
+  return richText
+    .map(bloco => (bloco.children || []).map(c => c.text || '').join(''))
+    .join('\n')
+    .trim();
+}
+
 async function processarResposta(telefone, data) {
-  if (data.messages && data.messages.length > 0) {
-    for (const msg of data.messages) {
-      if (msg.type === 'text' && msg.content && msg.content.richText) {
-        let texto = '';
-        for (const bloco of msg.content.richText) {
-          if (bloco.children) {
-            for (const filho of bloco.children) {
-              if (filho.text) texto += filho.text;
-            }
-          }
-          texto += '\n';
-        }
-        texto = texto.trim();
-        if (texto) {
-          await enviarMensagem(telefone, texto);
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      }
+  const mensagens = data.messages || [];
+  const input = data.input;
+
+  // Coleta todos os textos de uma vez para enviar juntos
+  const textos = [];
+  for (const msg of mensagens) {
+    if (msg.type === 'text' && msg.content?.richText) {
+      const texto = extrairTexto(msg.content.richText);
+      if (texto) textos.push(texto);
     }
   }
-  if (data.input && data.input.type === 'choice input' && data.input.items) {
-    const opcoes = data.input.items
+
+  // Se tem opções, adiciona junto com a última mensagem
+  if (input && input.type === 'choice input' && input.items?.length) {
+    const opcoes = input.items
       .map((item, i) => `${i + 1}. ${item.content}`)
       .join('\n');
-    await enviarMensagem(telefone, `Escolha uma opcao:\n\n${opcoes}`);
+    const ultimoTexto = textos.pop() || 'Escolha uma opcao:';
+    textos.push(`${ultimoTexto}\n\n${opcoes}`);
+  }
+
+  // Envia cada mensagem com delay
+  for (const texto of textos) {
+    await enviarMensagem(telefone, texto);
+    await new Promise(r => setTimeout(r, 1200));
   }
 }
+
+// Converte resposta numérica para o conteúdo da opção
+function resolverResposta(mensagem, input) {
+  if (!input || input.type !== 'choice input') return mensagem;
+  const num = parseInt(mensagem.trim());
+  if (num > 0 && input.items && input.items[num - 1]) {
+    return input.items[num - 1].content;
+  }
+  return mensagem;
+}
+
+// Armazena o último input de cada sessão para resolver respostas numéricas
+const ultimoInput = {};
 
 async function iniciarChat(telefone) {
   console.log('Iniciando chat:', telefone);
@@ -73,6 +94,7 @@ async function iniciarChat(telefone) {
   const data = await response.json();
   if (data.sessionId) {
     sessoes[telefone] = data.sessionId;
+    if (data.input) ultimoInput[telefone] = data.input;
     console.log('Sessao criada:', data.sessionId);
     await processarResposta(telefone, data);
   } else {
@@ -81,8 +103,11 @@ async function iniciarChat(telefone) {
   }
 }
 
-async function continuarChat(telefone, sessionId, mensagem) {
-  console.log('Continuando chat:', sessionId, '| msg:', mensagem);
+async function continuarChat(telefone, sessionId, mensagemUsuario) {
+  // Resolve resposta numérica para o texto da opção
+  const msgResolvida = resolverResposta(mensagemUsuario, ultimoInput[telefone]);
+  console.log('Continuando:', sessionId, '| original:', mensagemUsuario, '| resolvida:', msgResolvida);
+
   const response = await fetch(
     `https://typebot.co/api/v1/sessions/${sessionId}/continueChat`,
     {
@@ -91,11 +116,17 @@ async function continuarChat(telefone, sessionId, mensagem) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${TYPEBOT_TOKEN}`,
       },
-      body: JSON.stringify({ message: mensagem }),
+      body: JSON.stringify({ message: msgResolvida }),
     }
   );
   const data = await response.json();
-  if (data.status === 'ended') delete sessoes[telefone];
+  console.log('Status:', data.status);
+
+  if (data.input) ultimoInput[telefone] = data.input;
+  if (data.status === 'ended') {
+    delete sessoes[telefone];
+    delete ultimoInput[telefone];
+  }
   await processarResposta(telefone, data);
 }
 
@@ -104,9 +135,7 @@ app.post('/webhook', async (req, res) => {
   const payload = req.body;
   if (payload.fromMe || payload.isGroup) return;
   const telefone = payload.phone || payload.from;
-  const mensagem = (payload.text && payload.text.message)
-    ? payload.text.message
-    : (typeof payload.text === 'string' ? payload.text : '');
+  const mensagem = payload.text?.message || (typeof payload.text === 'string' ? payload.text : '');
   console.log('MSG de', telefone, ':', mensagem);
   if (!telefone || !mensagem) return;
   try {
@@ -120,6 +149,7 @@ app.post('/webhook', async (req, res) => {
     console.error('Erro:', err.message);
     await enviarMensagem(telefone, 'Desculpe, ocorreu um problema. Um atendente entrara em contato!');
     delete sessoes[telefone];
+    delete ultimoInput[telefone];
   }
 });
 
