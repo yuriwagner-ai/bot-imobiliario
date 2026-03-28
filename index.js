@@ -18,14 +18,13 @@ async function enviarMensagem(telefone, mensagem) {
       body: JSON.stringify({ phone: telefone, message: mensagem }),
     });
     const data = await response.json();
-    console.log('Mensagem enviada:', JSON.stringify(data));
+    console.log('Enviado:', JSON.stringify(data));
   } catch (err) {
-    console.error('Erro ao enviar mensagem:', err.message);
+    console.error('Erro ao enviar:', err.message);
   }
 }
 
 async function processarResposta(telefone, data) {
-  // Processa mensagens de texto
   if (data.messages && data.messages.length > 0) {
     for (const msg of data.messages) {
       if (msg.type === 'text' && msg.content && msg.content.richText) {
@@ -46,18 +45,16 @@ async function processarResposta(telefone, data) {
       }
     }
   }
-
-  // Processa input de escolha (botões)
   if (data.input && data.input.type === 'choice input' && data.input.items) {
     const opcoes = data.input.items
       .map((item, i) => `${i + 1}. ${item.content}`)
       .join('\n');
-    await enviarMensagem(telefone, `Escolha uma opção:\n\n${opcoes}`);
+    await enviarMensagem(telefone, `Escolha uma opcao:\n\n${opcoes}`);
   }
 }
 
 async function iniciarChat(telefone) {
-  console.log('Iniciando chat para:', telefone);
+  console.log('Iniciando chat:', telefone);
   const response = await fetch(
     `https://typebot.co/api/v1/typebots/${TYPEBOT_ID}/startChat`,
     {
@@ -70,19 +67,18 @@ async function iniciarChat(telefone) {
     }
   );
   const data = await response.json();
-  console.log('startChat response:', JSON.stringify(data).substring(0, 300));
-
   if (data.sessionId) {
     sessoes[telefone] = data.sessionId;
+    console.log('Sessao criada:', data.sessionId);
     await processarResposta(telefone, data);
   } else {
-    console.error('Sem sessionId:', JSON.stringify(data));
-    await enviarMensagem(telefone, 'Olá! Em breve um especialista entrará em contato.');
+    console.error('Erro startChat:', JSON.stringify(data));
+    await enviarMensagem(telefone, 'Ola! Em breve um especialista entrara em contato.');
   }
 }
 
 async function continuarChat(telefone, sessionId, mensagem) {
-  console.log('Continuando chat:', telefone, 'sessao:', sessionId, 'msg:', mensagem);
+  console.log('Continuando chat:', sessionId, '| msg:', mensagem);
   const response = await fetch(
     `https://typebot.co/api/v1/sessions/${sessionId}/continueChat`,
     {
@@ -95,35 +91,20 @@ async function continuarChat(telefone, sessionId, mensagem) {
     }
   );
   const data = await response.json();
-  console.log('continueChat response:', JSON.stringify(data).substring(0, 300));
-
-  if (data.status === 'ended') {
-    console.log('Chat encerrado para:', telefone);
-    delete sessoes[telefone];
-  }
+  if (data.status === 'ended') delete sessoes[telefone];
   await processarResposta(telefone, data);
 }
 
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
-  console.log('Webhook recebido:', JSON.stringify(req.body).substring(0, 200));
-
   const payload = req.body;
-  if (payload.fromMe) { console.log('Ignorando mensagem propria'); return; }
-  if (payload.isGroup) { console.log('Ignorando grupo'); return; }
-
+  if (payload.fromMe || payload.isGroup) return;
   const telefone = payload.phone || payload.from;
   const mensagem = (payload.text && payload.text.message)
     ? payload.text.message
     : (typeof payload.text === 'string' ? payload.text : '');
-
-  console.log('Telefone:', telefone, '| Mensagem:', mensagem);
-
-  if (!telefone || !mensagem) {
-    console.log('Telefone ou mensagem vazio, ignorando');
-    return;
-  }
-
+  console.log('MSG de', telefone, ':', mensagem);
+  if (!telefone || !mensagem) return;
   try {
     const sessionId = sessoes[telefone];
     if (!sessionId) {
@@ -132,8 +113,8 @@ app.post('/webhook', async (req, res) => {
       await continuarChat(telefone, sessionId, mensagem);
     }
   } catch (err) {
-    console.error('Erro geral:', err.message);
-    await enviarMensagem(telefone, 'Desculpe, ocorreu um problema. Um atendente entrará em contato em breve!');
+    console.error('Erro:', err.message);
+    await enviarMensagem(telefone, 'Desculpe, ocorreu um problema. Um atendente entrara em contato!');
     delete sessoes[telefone];
   }
 });
