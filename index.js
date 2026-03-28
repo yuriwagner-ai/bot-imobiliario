@@ -4,6 +4,7 @@ app.use(express.json());
 
 const ZAPI_INSTANCE = '3F0D146F6BE3E2AFA5A932CA3B3481D4';
 const ZAPI_TOKEN = '6244344FDB02B92DE450C071';
+const ZAPI_CLIENT_TOKEN = 'F68392bc7b7944ba29b0877c64cacf377S';
 const TYPEBOT_ID = 'bot-imobiliario-qualificacao-kh44hmk';
 const TYPEBOT_TOKEN = '9J5QPUpOEYuMntaFIw3q52UB';
 
@@ -14,7 +15,10 @@ async function enviarMensagem(telefone, mensagem) {
     const url = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Client-Token': ZAPI_CLIENT_TOKEN,
+      },
       body: JSON.stringify({ phone: telefone, message: mensagem }),
     });
     const data = await response.json();
