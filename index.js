@@ -61,7 +61,7 @@ async function processarResposta(telefone, data) {
   // Envia cada mensagem com delay
   for (const texto of textos) {
     await enviarMensagem(telefone, texto);
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 3000));
   }
 }
 
