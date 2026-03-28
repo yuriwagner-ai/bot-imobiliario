@@ -7,8 +7,11 @@ const ZAPI_TOKEN = '6244344FDB02B92DE450C071';
 const ZAPI_CLIENT_TOKEN = 'F68392bc7b7944ba29b0877c64cacf377S';
 const TYPEBOT_ID = 'bot-imobiliario-qualificacao-kh44hmk';
 const TYPEBOT_TOKEN = '9J5QPUpOEYuMntaFIw3q52UB';
+const MEU_NUMERO = '5582991053056';
 
 const sessoes = {};
+const ultimoInput = {};
+const dadosLead = {};
 
 async function enviarMensagem(telefone, mensagem) {
   try {
@@ -22,10 +25,26 @@ async function enviarMensagem(telefone, mensagem) {
       body: JSON.stringify({ phone: telefone, message: mensagem }),
     });
     const data = await response.json();
-    console.log('Enviado:', JSON.stringify(data));
+    console.log('Enviado para', telefone, ':', JSON.stringify(data));
   } catch (err) {
     console.error('Erro ao enviar:', err.message);
   }
+}
+
+async function notificarGerente(telefone) {
+  const dados = dadosLead[telefone] || {};
+  const mensagem = `🏠 *NOVO LEAD QUALIFICADO!*\n\n` +
+    `📱 Telefone: ${telefone}\n` +
+    `💰 Renda bruta total: ${dados.renda_bruta_total || 'Não informado'}\n` +
+    `🏦 Entrada: ${dados.entrada || 'Não informado'}\n` +
+    `💵 Valor entrada: ${dados.valor_entrada || 'Não informado'}\n` +
+    `💼 Vínculo: ${dados.vinculo || 'Não informado'}\n` +
+    `📋 Histórico CLT: ${dados.historico_clt || 'Não informado'}\n` +
+    `👨‍👩‍👧 Dependentes: ${dados.dependentes || 'Não informado'}\n` +
+    `🎂 Nascimento: ${dados.nascimento || 'Não informado'}`;
+  
+  console.log('Notificando gerente:', mensagem);
+  await enviarMensagem(MEU_NUMERO, mensagem);
 }
 
 function extrairTexto(richText) {
@@ -36,12 +55,27 @@ function extrairTexto(richText) {
     .trim();
 }
 
+function salvarVariaveis(telefone, variables) {
+  if (!variables || !variables.length) return;
+  if (!dadosLead[telefone]) dadosLead[telefone] = {};
+  for (const v of variables) {
+    if (v.name && v.value !== undefined) {
+      dadosLead[telefone][v.name] = v.value;
+    }
+  }
+  console.log('Dados do lead', telefone, ':', JSON.stringify(dadosLead[telefone]));
+}
+
 async function processarResposta(telefone, data) {
+  // Salva variáveis retornadas pelo Typebot
+  if (data.typebot && data.typebot.variables) {
+    salvarVariaveis(telefone, data.typebot.variables);
+  }
+
   const mensagens = data.messages || [];
   const input = data.input;
-
-  // Coleta todos os textos de uma vez para enviar juntos
   const textos = [];
+
   for (const msg of mensagens) {
     if (msg.type === 'text' && msg.content?.richText) {
       const texto = extrairTexto(msg.content.richText);
@@ -49,23 +83,23 @@ async function processarResposta(telefone, data) {
     }
   }
 
-  // Se tem opções, adiciona junto com a última mensagem
   if (input && input.type === 'choice input' && input.items?.length) {
-    const opcoes = input.items
-      .map((item, i) => `${i + 1}. ${item.content}`)
-      .join('\n');
+    const opcoes = input.items.map((item, i) => `${i + 1}. ${item.content}`).join('\n');
     const ultimoTexto = textos.pop() || 'Escolha uma opcao:';
     textos.push(`${ultimoTexto}\n\n${opcoes}`);
   }
 
-  // Envia cada mensagem com delay
   for (const texto of textos) {
     await enviarMensagem(telefone, texto);
     await new Promise(r => setTimeout(r, 3000));
   }
+
+  // Se chat encerrou, notifica o gerente
+  if (data.status === 'ended') {
+    await notificarGerente(telefone);
+  }
 }
 
-// Converte resposta numérica para o conteúdo da opção
 function resolverResposta(mensagem, input) {
   if (!input || input.type !== 'choice input') return mensagem;
   const num = parseInt(mensagem.trim());
@@ -74,9 +108,6 @@ function resolverResposta(mensagem, input) {
   }
   return mensagem;
 }
-
-// Armazena o último input de cada sessão para resolver respostas numéricas
-const ultimoInput = {};
 
 async function iniciarChat(telefone) {
   console.log('Iniciando chat:', telefone);
@@ -104,9 +135,8 @@ async function iniciarChat(telefone) {
 }
 
 async function continuarChat(telefone, sessionId, mensagemUsuario) {
-  // Resolve resposta numérica para o texto da opção
   const msgResolvida = resolverResposta(mensagemUsuario, ultimoInput[telefone]);
-  console.log('Continuando:', sessionId, '| original:', mensagemUsuario, '| resolvida:', msgResolvida);
+  console.log('Continuando:', sessionId, '| resolvida:', msgResolvida);
 
   const response = await fetch(
     `https://typebot.co/api/v1/sessions/${sessionId}/continueChat`,
